@@ -1,38 +1,39 @@
-const print = @import("std").debug.print;
+const std = @import("std");
+const print = std.debug.print;
+const ArrayList = std.ArrayList;
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-const NodeVariant = enum {
+const NodeTag = enum {
     internal,
     leaf
 };
+        //left: Node, // needs pointer
+        //right: Node,
 
-var Node = union(NodeVariant) {
+const Node = union(NodeTag) {
     internal: struct {
-        left: Node,
-        right: Node,
         count: u64
     },
     leaf: struct {
-        bit: u1,
+        byte: u8,
         count: u64
     }
 };
 
-fn build_tree(text: []const u8) !void {
-    var byte_counts = [_]u8{0} ** 256;
+fn build_table(text: []const u8) !void {
+    var node_list = ArrayList(Node).init(&gpa.allocator);
 
     for (text) |byte, i| {
-        byte_counts[byte] += 1;
-
-        //print("{}\n", .{byte});
-    }
-
-    print("\n\n\n\n\nYOINK", .{});
-    for (byte_counts) |bc, i| {
-        print("{c} {}\n", .{@truncate(u8, i), bc});
+        for (node_list.items) |*node| {
+            if (byte == node.leaf.byte) {
+                node.leaf.count += 1;
+            }
+        }
     }
 }
 
 pub fn main() !void {
-    try build_tree("Hellow world");
+    print("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n============\n", .{});
+    try build_table("Hello, world! It's-a-me, Marioooo!");
 }
 
