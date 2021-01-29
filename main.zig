@@ -2,6 +2,7 @@ const std = @import("std");
 const print = std.debug.print;
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
+
 const NodeTag = enum {
     internal,
     leaf
@@ -23,6 +24,31 @@ const Node = union(NodeTag) {
             .internal => self.internal.count
         };
     }
+    fn print(self: Node) void {
+        if (self == .leaf) {
+            print("Leaf node:\n  Count: {}\n  Byte: {} « {c} »\n\n", .{ self.leaf.count, self.leaf.byte, self.leaf.byte});
+        } else if (self == .internal) {
+            print("Internal node:\n  Count: {}\n  Left: {}\n  Right: {}\n\n", .{self.internal.count, self.internal.left, self.internal.right});
+        }
+    }
+    fn print_recursive(self: Node) void {
+        //switch (*self) {
+        //    .internal => |i| {
+        //        print("=========\nInternal node:\n", .{});
+        //        i.left.print_recursive();
+        //        //i.right.print_recursive();
+        //    },
+        //    .leaf => |i| {
+        //        print("-> Leaf node:\n", .{});
+        //    }
+        //}
+        if (self == .leaf) {
+            print("-> Leaf node:\n", .{});
+        } else if (self == .internal) {
+            print("=========\nInternal node:\n", .{});
+            self.internal.right.print_recursive();
+        }
+    }
 };
 
 
@@ -31,10 +57,12 @@ fn compare_nodes(ctx: void, a: Node, b: Node) bool {
     return a.get_count() > b.get_count();
 }
 
-fn build_table(text: []const u8) !void {
+fn build_tree(text: []const u8) !Node {
 
     // Build and sort array of leaf nodes.
     var nodes = std.ArrayList(Node).init(&gpa.allocator);
+    defer nodes.deinit();
+
     outer: for (text) |byte, i| {
         var found: bool = false;
 
@@ -45,8 +73,9 @@ fn build_table(text: []const u8) !void {
             }
         }
         if (!found) {
-            var node = Node { .leaf = .{ .byte = byte, .count = 1 } };
-            try nodes.append(node);
+            var node_ptr: *Node = try gpa.allocator.create(Node);
+            node_ptr.* = Node { .leaf = .{ .byte = byte, .count = 1 } };
+            try nodes.append(node_ptr.*);
         }
     }
 
@@ -56,24 +85,43 @@ fn build_table(text: []const u8) !void {
         var child_left = nodes.pop();
         var child_right = nodes.pop();
 
-        var node = Node {
+        var node_ptr: *Node = try gpa.allocator.create(Node);
+        node_ptr.* = Node {
             .internal = .{
                 .left = &child_left,
                 .right = &child_right,
                 .count = child_left.get_count() + child_right.get_count()
             }
         };
-        try nodes.append(node);
+        try nodes.append(node_ptr.*);
+
+        ////var count: u64 = 0;
+        ////var num: u64 = 0;
+        ////for (nodes.items) |item| {
+        ////    print("{} ", .{ item.get_count() });
+        ////    count += item.get_count();
+        ////    num += 1;
+        ////}
+        ////print("= {} ({} elems) \n", .{count, num});
+
+        print("========================\n========================\n", .{});
+        for (nodes.items) |item| {
+            item.print();
+        }
+        print("Count: {} ({} + {})\n", .{child_left.get_count() + child_right.get_count(), child_left.get_count(), child_right.get_count()});
     }
 
-    var root: Node = nodes.pop();
+    //nodes.items[0].print_recursive();
+    return nodes.pop();  // Tree root.
+}
 
-    print("{}", .{ root.get_count() } );
+fn build_table(root: Node) !void {
+    
 }
 
 pub fn main() !void {
     print("\n\n============\n", .{});
-    //try build_table("Hello, world! It's-a-me, Marioooo! I listen to ZZ Top!");
 
-    try build_table(@embedFile("main.zig"));
+    var root: Node = try build_tree(@embedFile("main.zig"));
+    try build_table(root);
 }
