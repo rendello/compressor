@@ -89,16 +89,48 @@ fn tree_build(text: []const u8) !*Node {
 
 /// Return HashMap of characters and their codes.
 /// Essentially a functional wrapper for `table_build_internal`.
-fn table_build(root_node: *Node) !void {
-    var prefix = try gpa.allocator.alloc(u1, 0);
-    var char_map = std.AutoHashMap(u8, []u1).init(&gpa.allocator);
+/// Caller must free `byte_map`, and the patterns in `byte_map`.
+fn table_build(root_node: *Node) !*std.AutoHashMap(u8, []u1) {
+    var pattern = try gpa.allocator.alloc(u1, 0);
+    defer gpa.allocator.free(pattern);
 
-    //table_build_internal(root_node, prefix, *char_map);
+    var byte_map = std.AutoHashMap(u8, []u1).init(&gpa.allocator);
+
+    try table_build_internal(root_node, pattern, &byte_map);
+
+    return &byte_map;
 }
 
-// todo don't pass arraylist, pass slice. Args are immutable, so pass slice + bit to next call.
-fn table_build_internal(node: *Node, prefix: []u1, char_map: *std.AutoHashMap(u8, []u1)) !void {
+/// Build HashMap of character and their codes recursively.
+/// Don't call directly, use the functional `table_build` wrapper.
+fn table_build_internal(node: *Node, pattern: []u1,
+        byte_map: *std.AutoHashMap(u8, []u1)) std.mem.Allocator.Error!void {
 
+    if (node.* == .internal) {
+        var l_pattern: []u1 = try gpa.allocator.alloc(u1, pattern.len+1);
+        std.mem.copy(u1, l_pattern, pattern);
+        l_pattern[l_pattern.len-1] = 0;
+        try table_build_internal(node.internal.left, l_pattern, byte_map);
+
+        var r_pattern: []u1 = try gpa.allocator.alloc(u1, pattern.len+1);
+        std.mem.copy(u1, r_pattern, pattern);
+        r_pattern[r_pattern.len-1] = 1;
+        try table_build_internal(node.internal.right, r_pattern, byte_map);
+
+        // => allocate slice of size pattern+1, append 0
+        // => table_build_internal(node.left, l_pattern)
+
+        // => allocate slice of size pattern+1, append 1
+        // => table_build_internal(node.right, r_pattern)
+
+        // => free(l_pattern)
+        // => free(r_pattern)
+
+    } else if (node.* == .leaf) {
+        // => byte_map[byte] = pattern
+        print("{c} {}\n", .{node.leaf.byte, pattern});
+        try byte_map.put(node.leaf.byte, pattern);
+    }
 }
 
 pub fn main() !void {
@@ -106,5 +138,8 @@ pub fn main() !void {
 
     var root: *Node = try tree_build(@embedFile("main.zig"));
 
-    try table_build(root);
+    var byte_map = try table_build(root);
+
+    print("\n\n------------\n", .{});
+    print("{}", .{ byte_map.get(' ') });
 }
