@@ -1,7 +1,8 @@
 const std = @import("std");
 const print = std.debug.print;
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+var allocator = &arena.allocator;
 
 const NodeTag = enum {
     internal,
@@ -51,8 +52,7 @@ fn compare_nodes_desc(ctx: void, a: *Node, b: *Node) bool {
 fn tree_build(text: []const u8) !*Node {
 
     // Build ArrayList of pointers to alloc'd leaf nodes.
-    var nodes = std.ArrayList(*Node).init(&gpa.allocator);
-    defer nodes.deinit();
+    var nodes = std.ArrayList(*Node).init(allocator);
 
     outer: for (text) |byte| {
         for (nodes.items) |node| {
@@ -62,7 +62,7 @@ fn tree_build(text: []const u8) !*Node {
             }
         }
         // Reached if byte not in `nodes`.
-        var node: *Node = try gpa.allocator.create(Node);
+        var node: *Node = try allocator.create(Node);
         node.* = Node { .leaf = .{ .byte = byte, .count = 1 } };
         try nodes.append(node);
     }
@@ -73,7 +73,7 @@ fn tree_build(text: []const u8) !*Node {
         var child_left: *Node = nodes.pop();
         var child_right: *Node = nodes.pop();
 
-        var node: *Node = try gpa.allocator.create(Node);
+        var node: *Node = try allocator.create(Node);
         node.* = Node {
             .internal = .{
                 .left = child_left,
@@ -90,14 +90,14 @@ fn tree_build(text: []const u8) !*Node {
 /// Essentially a functional wrapper for `table_build_internal`.
 /// Caller must free `byte_map`, and the patterns in `byte_map`.
 fn table_build(root_node: *Node) !*std.AutoHashMap(u8, []u1) {
-    var pattern = try gpa.allocator.alloc(u1, 0);
-    defer gpa.allocator.free(pattern);
+    var pattern = try allocator.alloc(u1, 0);
 
-    var byte_map = std.AutoHashMap(u8, []u1).init(&gpa.allocator);
+    var byte_map = try allocator.create(std.AutoHashMap(u8, []u1));
+    byte_map.* = std.AutoHashMap(u8, []u1).init(allocator);
 
-    try table_build_internal(root_node, pattern, &byte_map);
+    try table_build_internal(root_node, pattern, byte_map);
 
-    return &byte_map;
+    return byte_map;
 }
 
 /// Build HashMap of character and their codes recursively.
@@ -109,18 +109,13 @@ fn table_build_internal(node: *Node, pattern: []u1,
         // => allocate slice of size pattern+1,
         // => append 0 (left) or 1 (right) to new pattern,
         // => table_build_internal(node.left/right, new_pattern).
-        // => free prefixes ??
-            // Only prefixes exported to the hashtable need to stay alloc'd.
-            // Anything not in the hashtable won't be freed (ie. leaked).
-            // Could copy slice to new allocation in leaf branch.
-            // Doesn't solve segfault issue as prefixes were already alloc'd.
 
-        var l_pattern: []u1 = try gpa.allocator.alloc(u1, pattern.len+1);
+        var l_pattern: []u1 = try allocator.alloc(u1, pattern.len+1);
         std.mem.copy(u1, l_pattern, pattern);
         l_pattern[l_pattern.len-1] = 0;
         try table_build_internal(node.internal.left, l_pattern, byte_map);
 
-        var r_pattern: []u1 = try gpa.allocator.alloc(u1, pattern.len+1);
+        var r_pattern: []u1 = try allocator.alloc(u1, pattern.len+1);
         std.mem.copy(u1, r_pattern, pattern);
         r_pattern[r_pattern.len-1] = 1;
         try table_build_internal(node.internal.right, r_pattern, byte_map);
@@ -130,18 +125,18 @@ fn table_build_internal(node: *Node, pattern: []u1,
     }
 }
 
-fn byte_map_free(byte_map: *std.AutoHashMap(u8, []u1)) void {
-    // => free patterns
-    // => free `byte_map`
-}
-
 pub fn main() !void {
     print("\n\n============\n", .{});
 
     var root: *Node = try tree_build(@embedFile("main.zig"));
     var byte_map = try table_build(root);
 
-    print("\n\n------------\n", .{});
-    print("{}", .{byte_map.get('a')});
-    print("{}", .{byte_map.get('l')});
+    var i: u8 = 0;
+    while (i <= 254) : (i += 1) {
+        if (byte_map.get(i) != null) {
+            print("{c} = {}\n", .{i, byte_map.get(i)});
+        }
+    }
+
+    arena.deinit();
 }
