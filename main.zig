@@ -1,7 +1,7 @@
 const std = @import("std");
 const print = std.debug.print;
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
 const NodeTag = enum {
     internal,
@@ -42,8 +42,7 @@ const Node = union(NodeTag) {
     }
 };
 
-/// Compare nodes by count. Descending.
-fn compare_nodes(ctx: void, a: *Node, b: *Node) bool {
+fn compare_nodes_desc(ctx: void, a: *Node, b: *Node) bool {
     return a.*.get_count() > b.*.get_count();
 }
 
@@ -70,7 +69,7 @@ fn tree_build(text: []const u8) !*Node {
 
     // Build tree.
     while (nodes.items.len > 1) {
-        std.sort.sort(*Node, nodes.items, {}, compare_nodes);
+        std.sort.sort(*Node, nodes.items, {}, compare_nodes_desc);
         var child_left: *Node = nodes.pop();
         var child_right: *Node = nodes.pop();
 
@@ -107,6 +106,15 @@ fn table_build_internal(node: *Node, pattern: []u1,
         byte_map: *std.AutoHashMap(u8, []u1)) std.mem.Allocator.Error!void {
 
     if (node.* == .internal) {
+        // => allocate slice of size pattern+1,
+        // => append 0 (left) or 1 (right) to new pattern,
+        // => table_build_internal(node.left/right, new_pattern).
+        // => free prefixes ??
+            // Only prefixes exported to the hashtable need to stay alloc'd.
+            // Anything not in the hashtable won't be freed (ie. leaked).
+            // Could copy slice to new allocation in leaf branch.
+            // Doesn't solve segfault issue as prefixes were already alloc'd.
+
         var l_pattern: []u1 = try gpa.allocator.alloc(u1, pattern.len+1);
         std.mem.copy(u1, l_pattern, pattern);
         l_pattern[l_pattern.len-1] = 0;
@@ -117,29 +125,23 @@ fn table_build_internal(node: *Node, pattern: []u1,
         r_pattern[r_pattern.len-1] = 1;
         try table_build_internal(node.internal.right, r_pattern, byte_map);
 
-        // => allocate slice of size pattern+1, append 0
-        // => table_build_internal(node.left, l_pattern)
-
-        // => allocate slice of size pattern+1, append 1
-        // => table_build_internal(node.right, r_pattern)
-
-        // => free(l_pattern)
-        // => free(r_pattern)
-
     } else if (node.* == .leaf) {
-        // => byte_map[byte] = pattern
-        print("{c} {}\n", .{node.leaf.byte, pattern});
         try byte_map.put(node.leaf.byte, pattern);
     }
+}
+
+fn byte_map_free(byte_map: *std.AutoHashMap(u8, []u1)) void {
+    // => free patterns
+    // => free `byte_map`
 }
 
 pub fn main() !void {
     print("\n\n============\n", .{});
 
     var root: *Node = try tree_build(@embedFile("main.zig"));
-
     var byte_map = try table_build(root);
 
     print("\n\n------------\n", .{});
-    print("{}", .{ byte_map.get(' ') });
+    print("{}", .{byte_map.get('a')});
+    print("{}", .{byte_map.get('l')});
 }
