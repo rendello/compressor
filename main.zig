@@ -4,6 +4,9 @@ const print = std.debug.print;
 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 var allocator = &arena.allocator;
 
+
+// Tree construction ///////////////////////////////////////////////////////////
+
 const NodeTag = enum {
     internal,
     leaf
@@ -86,6 +89,8 @@ fn tree_build(text: []const u8) !*Node {
     return nodes.pop();  // Tree root.
 }
 
+// Table construction //////////////////////////////////////////////////////////
+
 /// Return HashMap of characters and their codes.
 /// Essentially a functional wrapper for `table_build_internal`.
 /// Caller must free `byte_map`, and the patterns in `byte_map`.
@@ -125,18 +130,69 @@ fn table_build_internal(node: *Node, pattern: []u1,
     }
 }
 
+// Canonicalization ////////////////////////////////////////////////////////////
+
+/// Non-canonical mapping.
+/// Temp struct to be sorted during canonicalization.
+const NCMapping = struct {
+    byte: u8,
+    length: u8
+};
+
+/// Sort on length, if equal, sort on numerical precedence. Ascending.
+fn compare_mappings(ctx: void, a: NCMapping, b: NCMapping) bool {
+    if (a.length == b.length) {
+        return (a.byte < b.byte);
+    } else {
+        return (a.length < b.length);
+    }
+}
+
+/// Return a canonical version of the Huffman table.
+fn table_canonicalize(byte_map: *std.AutoHashMap(u8, []u1)) !void {
+    var mappings = std.ArrayList(NCMapping).init(allocator);
+
+    var i: u8 = 0;
+    while (i <= 254) : (i += 1) {
+        var pattern = byte_map.get(i);
+        if (pattern != null) {
+            try mappings.append(NCMapping{.byte = i, .length = @intCast(u8, pattern.?.len)});
+        }
+    }
+
+    std.sort.sort(NCMapping, mappings.items, {}, compare_mappings);
+
+    for (mappings.items) |item| {
+        print("{}\n", .{item});
+    }
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+
 pub fn main() !void {
     print("\n\n============\n", .{});
 
     var root: *Node = try tree_build(@embedFile("main.zig"));
     var byte_map = try table_build(root);
+    try table_canonicalize(byte_map);
 
-    var i: u8 = 0;
-    while (i <= 254) : (i += 1) {
-        if (byte_map.get(i) != null) {
-            print("{c} = {}\n", .{i, byte_map.get(i)});
-        }
-    }
+    //var i: u8 = 0;
+    //while (i <= 254) : (i += 1) {
+    //    if (byte_map.get(i) != null) {
+    //        print("{c} = {}\n", .{i, byte_map.get(i)});
+    //    }
+    //}
+
+    //for (@embedFile("main.zig")) |c| {
+    //    var pattern = byte_map.get(c);
+
+    //    if (pattern != null) {
+    //        for (pattern.?) |bit| {
+    //            print("{}", .{bit});
+    //        }
+    //    }
+    //}
 
     arena.deinit();
 }
