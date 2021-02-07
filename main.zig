@@ -1,6 +1,8 @@
 const std = @import("std");
 const print = std.debug.print;
 
+const ArrayList = std.ArrayList;
+
 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 var allocator = &arena.allocator;
 
@@ -47,11 +49,10 @@ const Node = union(NodeTag) {
 };
 
 fn compare_nodes_desc(ctx: void, a: *Node, b: *Node) bool {
-    return a.*.get_count() > b.*.get_count();
+    return a.get_count() > b.get_count();
 }
 
 /// Build binary tree.
-/// Caller must deallocate tree nodes.
 fn tree_build(text: []const u8) !*Node {
 
     // Build ArrayList of pointers to alloc'd leaf nodes.
@@ -89,80 +90,44 @@ fn tree_build(text: []const u8) !*Node {
     return nodes.pop();  // Tree root.
 }
 
+
 // Table construction //////////////////////////////////////////////////////////
 
-/// Return HashMap of characters and their codes.
-/// Essentially a functional wrapper for `table_build_internal`.
-/// Caller must free `byte_map`, and the patterns in `byte_map`.
-fn table_build(root_node: *Node) !*std.AutoHashMap(u8, []u1) {
-    var pattern = try allocator.alloc(u1, 0);
-
-    var byte_map = try allocator.create(std.AutoHashMap(u8, []u1));
-    byte_map.* = std.AutoHashMap(u8, []u1).init(allocator);
-
-    try table_build_internal(root_node, pattern, byte_map);
-
-    return byte_map;
-}
-
-/// Build HashMap of character and their codes recursively.
-/// Don't call directly, use the functional `table_build` wrapper.
-fn table_build_internal(node: *Node, pattern: []u1,
-        byte_map: *std.AutoHashMap(u8, []u1)) std.mem.Allocator.Error!void {
-
-    if (node.* == .internal) {
-        // => allocate slice of size pattern+1,
-        // => append 0 (left) or 1 (right) to new pattern,
-        // => table_build_internal(node.left/right, new_pattern).
-
-        var l_pattern: []u1 = try allocator.alloc(u1, pattern.len+1);
-        std.mem.copy(u1, l_pattern, pattern);
-        l_pattern[l_pattern.len-1] = 0;
-        try table_build_internal(node.internal.left, l_pattern, byte_map);
-
-        var r_pattern: []u1 = try allocator.alloc(u1, pattern.len+1);
-        std.mem.copy(u1, r_pattern, pattern);
-        r_pattern[r_pattern.len-1] = 1;
-        try table_build_internal(node.internal.right, r_pattern, byte_map);
-
-    } else if (node.* == .leaf) {
-        try byte_map.put(node.leaf.byte, pattern);
-    }
-}
-
-// Canonicalization ////////////////////////////////////////////////////////////
-
-/// Non-canonical mapping.
-/// Temp struct to be sorted during canonicalization.
-const NCMapping = struct {
+const Entry = struct {
     byte: u8,
-    length: u8
+    bit_count: u8
 };
 
-/// Sort on length, if equal, sort on numerical precedence. Ascending.
-fn compare_mappings(ctx: void, a: NCMapping, b: NCMapping) bool {
-    if (a.length == b.length) {
+/// Sort by bit count, then by numerical precedence. Ascending.
+fn compare_entries(ctx: void, a: Entry, b: Entry) bool {
+    if (a.bit_count == b.bit_count) {
         return (a.byte < b.byte);
     } else {
-        return (a.length < b.length);
+        return (a.bit_count < b.bit_count);
     }
 }
 
-/// Return a canonical version of the Huffman table.
-fn table_canonicalize(byte_map: *std.AutoHashMap(u8, []u1)) !void {
-    var mappings = std.ArrayList(NCMapping).init(allocator);
-
-    var i: u8 = 0;
-    while (i <= 254) : (i += 1) {
-        var pattern = byte_map.get(i);
-        if (pattern != null) {
-            try mappings.append(NCMapping{.byte = i, .length = @intCast(u8, pattern.?.len)});
-        }
+fn entry_list_build(node: *Node, bit_count: u8, entries: *ArrayList(Entry)) std.mem.Allocator.Error!void {
+    if (node.* == .internal) {
+        try entry_list_build(node.internal.left, bit_count+1, entries);
+        try entry_list_build(node.internal.right, bit_count+1, entries);
+    } else if (node.* == .leaf) {
+        try entries.append(Entry{.byte = node.leaf.byte, .bit_count = bit_count});
     }
+}
 
-    std.sort.sort(NCMapping, mappings.items, {}, compare_mappings);
+fn table_build(root_node: *Node) !void {
 
-    for (mappings.items) |item| {
+    // Build list of entries recursively.
+    var entries = try allocator.create(ArrayList(Entry));
+    entries.* = ArrayList(Entry).init(allocator);
+
+    try entry_list_build(root_node, 0, entries);
+
+    // Canonicalize the list.
+    std.sort.sort(Entry, entries.items, {}, compare_entries);
+
+    for (entries.items) |item| {
         print("{}\n", .{item});
     }
 }
@@ -171,28 +136,10 @@ fn table_canonicalize(byte_map: *std.AutoHashMap(u8, []u1)) !void {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub fn main() !void {
-    print("\n\n============\n", .{});
+    print("\n\n============\n----\n", .{});
 
     var root: *Node = try tree_build(@embedFile("main.zig"));
-    var byte_map = try table_build(root);
-    try table_canonicalize(byte_map);
-
-    //var i: u8 = 0;
-    //while (i <= 254) : (i += 1) {
-    //    if (byte_map.get(i) != null) {
-    //        print("{c} = {}\n", .{i, byte_map.get(i)});
-    //    }
-    //}
-
-    //for (@embedFile("main.zig")) |c| {
-    //    var pattern = byte_map.get(c);
-
-    //    if (pattern != null) {
-    //        for (pattern.?) |bit| {
-    //            print("{}", .{bit});
-    //        }
-    //    }
-    //}
+    try table_build(root);
 
     arena.deinit();
 }
