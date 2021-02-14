@@ -1,4 +1,6 @@
 const std = @import("std");
+const bb = @import("bitlist.zig");
+
 const print = std.debug.print;
 
 const ArrayList = std.ArrayList;
@@ -65,6 +67,7 @@ fn tree_build(text: []const u8) !*Node {
                 continue :outer;
             }
         }
+
         // Reached if byte not in `nodes`.
         var node: *Node = try allocator.create(Node);
         node.* = Node { .leaf = .{ .byte = byte, .count = 1 } };
@@ -98,7 +101,7 @@ const Entry = struct {
     bit_count: u8
 };
 
-/// Sort by bit count, then by numerical precedence. Ascending.
+/// Sort first by bit count, then by numerical precedence. Ascending.
 fn compare_entries(ctx: void, a: Entry, b: Entry) bool {
     if (a.bit_count == b.bit_count) {
         return (a.byte < b.byte);
@@ -107,6 +110,7 @@ fn compare_entries(ctx: void, a: Entry, b: Entry) bool {
     }
 }
 
+/// Fill `entries` list by walking the tree recurively.
 fn entry_list_build(node: *Node, bit_count: u8, entries: *ArrayList(Entry)) std.mem.Allocator.Error!void {
     if (node.* == .internal) {
         try entry_list_build(node.internal.left, bit_count+1, entries);
@@ -116,30 +120,87 @@ fn entry_list_build(node: *Node, bit_count: u8, entries: *ArrayList(Entry)) std.
     }
 }
 
-fn table_build(root_node: *Node) !void {
+fn table_build(root_node: *Node) ![]Entry {
 
-    // Build list of entries recursively.
+    // Build and sort list of entries.
     var entries = try allocator.create(ArrayList(Entry));
     entries.* = ArrayList(Entry).init(allocator);
 
     try entry_list_build(root_node, 0, entries);
-
-    // Canonicalize the list.
     std.sort.sort(Entry, entries.items, {}, compare_entries);
 
-    for (entries.items) |item| {
-        print("{}\n", .{item});
+    // Build canonical table from sorted entries.
+
+    return entries.toOwnedSlice();
+}
+
+fn file_build() !void {
+    bit_counts = ArrayList(u8).init(allocator);
+
+    var current_bit_count: u8 = 1;
+    for (entry) |e| {
+        if (current_bit_count < e.bit_count) {
+            bit_counts.append(current_bit_count);
+            current_bit_count = bit_count;
+        }
     }
 }
+
+// Use arraylist of u1:
+    // Memory inefficient (almost certainly byte-aligned)
+// Use arraylist of u8:
+    // Requires custom function
+    // Potentially slower? Extending arraylist for u1 version likely to be slower
+// Either case, store the number of bits in case it's not byte-aligned at the end
+// Look into PackedIntIo in:
+// https://github.com/ziglang/zig/blob/master/lib/std/packed_int_array.zig
+
+// Maybe use arraylist of u1s and chunk them into a packed array every thousand
+// entries or so?
+////fn encode(text: []u8, entries: []Entry) !void {
+////    var map = std.AutoHashMap(u8, []u1).init(test_allocator);
+////
+////    for (entries) |e| {
+////
+////    }
+////}
 
 
 ////////////////////////////////////////////////////////////////////////////////
 
 pub fn main() !void {
-    print("\n\n============\n----\n", .{});
+////    print("\n\n============\n----\n", .{});
+////
+////    var root: *Node = try tree_build(@embedFile("main.zig"));
+////    var t = try table_build(root);
 
-    var root: *Node = try tree_build(@embedFile("main.zig"));
-    try table_build(root);
+    //for (t) |e| {
+    //    print("{}\n", .{e});
+    //}
+
+    var b = try bb.BitList.init(allocator);
+// 01111001 01101111
+    try b.append_bit(0);
+    try b.append_bit(1);
+    try b.append_bit(1);
+    try b.append_bit(1);
+    try b.append_bit(1);
+    try b.append_bit(0);
+    try b.append_bit(0);
+    try b.append_bit(1);
+
+    try b.append_bit(0);
+    try b.append_bit(1);
+    try b.append_bit(1);
+    try b.append_bit(0);
+    try b.append_bit(1);
+    try b.append_bit(1);
+    try b.append_bit(1);
+    try b.append_bit(1);
+
+    for (b.bytes.items) |item| {
+        print("{} ", .{ item });
+    }
 
     arena.deinit();
 }

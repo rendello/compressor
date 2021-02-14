@@ -1,0 +1,28 @@
+
+Integers are little endian.
+
+VALUE:      [52 5A] 2*U8
+PURPOSE:    Signature. "RZ" (Rendello Zip).
+
+VALUE:      U8
+PURPOSE:    <bc_count> Count of bit count values.
+
+VALUE:      U8*bc_count
+PURPOSE:    Each integer encodes the number of bytes that have a given bit
+            count. The bit count itself is determined by the int's position,
+            ie. if the second ints has a decimal value of 3, then there are
+            three bytes that have a bit length of two. <byte_count> is the sum
+            of these ints.
+
+VALUE:      U8*byte_count
+PURPOSE:    The bytes present in the file, ordered first by bit count and then
+            by numerical value.
+
+VALUE:      U3
+PURPOSE:    End-padding, 0 to 7 bits to ignore at the end of the file. Necessary
+            as compressed text may not be byte-aligned.
+
+VALUE:      (variable)
+PURPOSE:    Compressed text.
+
+
