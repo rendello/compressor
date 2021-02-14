@@ -1,5 +1,4 @@
 const std = @import("std");
-const bb = @import("bitlist.zig");
 
 const print = std.debug.print;
 
@@ -93,6 +92,30 @@ fn tree_build(text: []const u8) !*Node {
     return nodes.pop();  // Tree root.
 }
 
+// BitList /////////////////////////////////////////////////////////////////////
+
+/// An ArrayList of bytes that can have bits appended to it directly.
+pub const BitList = struct {
+    bytes: std.ArrayList(u8) = undefined,
+    bit_index: u32 = 0,
+
+    pub fn init(a: *std.mem.Allocator) !BitList {
+        return BitList {.bytes = std.ArrayList(u8).init(a)};
+    }
+    /// Shift bits into list, left-to-right. Add bytes if needed.
+    pub fn append_bit(self: *BitList, bit: u1) !void {
+        if (self.bytes.items.len*8 < self.bit_index+1) {
+            try self.bytes.append(0);
+        }
+        if (bit == 1) {
+            self.bytes.items[self.bit_index/8] |= @as(u8, 128) >> self.get_trailing_bits();
+        }
+        self.bit_index += 1;
+    }
+    pub fn get_trailing_bits(self: *BitList) u3 {
+        return @intCast(u3, self.bit_index-(self.bit_index/8*8));
+    }
+};
 
 // Table construction //////////////////////////////////////////////////////////
 
@@ -134,37 +157,6 @@ fn table_build(root_node: *Node) ![]Entry {
     return entries.toOwnedSlice();
 }
 
-fn file_build() !void {
-    bit_counts = ArrayList(u8).init(allocator);
-
-    var current_bit_count: u8 = 1;
-    for (entry) |e| {
-        if (current_bit_count < e.bit_count) {
-            bit_counts.append(current_bit_count);
-            current_bit_count = bit_count;
-        }
-    }
-}
-
-// Use arraylist of u1:
-    // Memory inefficient (almost certainly byte-aligned)
-// Use arraylist of u8:
-    // Requires custom function
-    // Potentially slower? Extending arraylist for u1 version likely to be slower
-// Either case, store the number of bits in case it's not byte-aligned at the end
-// Look into PackedIntIo in:
-// https://github.com/ziglang/zig/blob/master/lib/std/packed_int_array.zig
-
-// Maybe use arraylist of u1s and chunk them into a packed array every thousand
-// entries or so?
-////fn encode(text: []u8, entries: []Entry) !void {
-////    var map = std.AutoHashMap(u8, []u1).init(test_allocator);
-////
-////    for (entries) |e| {
-////
-////    }
-////}
-
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -178,8 +170,8 @@ pub fn main() !void {
     //    print("{}\n", .{e});
     //}
 
-    var b = try bb.BitList.init(allocator);
-// 01111001 01101111
+    var b = try BitList.init(allocator);
+
     try b.append_bit(0);
     try b.append_bit(1);
     try b.append_bit(1);
