@@ -143,56 +143,99 @@ fn entry_list_build(node: *Node, bit_count: u8, entries: *ArrayList(Entry)) std.
     }
 }
 
-fn table_build(root_node: *Node) ![]Entry {
+/// The pattern of bits to map a byte to. Essentially just a big integer and
+/// the number of bits that are used.
+const BitPattern = struct {
+    pattern: u64 = undefined,
+    used: u8 = undefined,
+
+    /// Get bit at index of pattern. Left to right.
+    // ? will need to return error
+    fn get_bit(self: BitPattern, index: u8) ?u1 {
+        return @intCast(u1, ((self.pattern) >> (self.bits_used-index)) & 1);
+    }
+};
+
+/// Build and return canonical table from the Huffman tree.
+// todo: use package-merge algorithm to ensure length-limited codes.
+// todo: return array of 256 instead of hash map
+fn table_build(root_node: *Node) !*std.AutoHashMap(u8, BitPattern) {
 
     // Build and sort list of entries.
-    var entries = try allocator.create(ArrayList(Entry));
-    entries.* = ArrayList(Entry).init(allocator);
-
-    try entry_list_build(root_node, 0, entries);
+    var entries = ArrayList(Entry).init(allocator);
+    try entry_list_build(root_node, 0, &entries);
     std.sort.sort(Entry, entries.items, {}, compare_entries);
 
     // Build canonical table from sorted entries.
 
-    return entries.toOwnedSlice();
+    // First symbol:
+    // - Pattern is the same length of its original, but all zeros.
+    // 
+    // Subsequent symbols:
+    // - Pattern is incremented by one mathematically.
+    // - If original pattern is longer than previous symbol's, everything is
+    //   shifted over to the right by the difference. Right shift and update
+    //   `used` bits.
+
+    var map = try allocator.create(std.AutoHashMap(u8, BitPattern));
+    map.* = std.AutoHashMap(u8, BitPattern).init(allocator);
+
+    var used: u8 = entries.items[0].bit_count;
+    var pattern: u64 = 0;
+    try map.put(entries.items[0].byte, BitPattern{.pattern=pattern, .used=used});
+
+    for (entries.items[1..]) |entry| {
+        pattern += 1;
+        var bc_diff: u8 = entry.bit_count - used;
+
+        if (bc_diff != 0) {
+            pattern <<= @intCast(u6, bc_diff);
+            used += bc_diff;
+        }
+        try map.put(entry.byte, BitPattern{.pattern=pattern, .used=used});
+    }
+    return map;
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////
 
 pub fn main() !void {
-////    print("\n\n============\n----\n", .{});
-////
-////    var root: *Node = try tree_build(@embedFile("main.zig"));
-////    var t = try table_build(root);
+    print("\n\n============\n----\n", .{});
 
-    //for (t) |e| {
-    //    print("{}\n", .{e});
-    //}
+    var root: *Node = try tree_build(@embedFile("main.zig"));
+    var t = try table_build(root);
 
-    var b = try BitList.init(allocator);
-
-    try b.append_bit(0);
-    try b.append_bit(1);
-    try b.append_bit(1);
-    try b.append_bit(1);
-    try b.append_bit(1);
-    try b.append_bit(0);
-    try b.append_bit(0);
-    try b.append_bit(1);
-
-    try b.append_bit(0);
-    try b.append_bit(1);
-    try b.append_bit(1);
-    try b.append_bit(0);
-    try b.append_bit(1);
-    try b.append_bit(1);
-    try b.append_bit(1);
-    try b.append_bit(1);
-
-    for (b.bytes.items) |item| {
-        print("{} ", .{ item });
+    var i: u8 = 0;
+    while (i < 255) : (i += 1) {
+        if (t.get(i) != null) {
+            print("{} {c} = {b}\n", .{i, i, t.get(i).?.pattern});
+        }
     }
+
+    //// var b = try BitList.init(allocator);
+
+    //// try b.append_bit(0);
+    //// try b.append_bit(1);
+    //// try b.append_bit(1);
+    //// try b.append_bit(1);
+    //// try b.append_bit(1);
+    //// try b.append_bit(0);
+    //// try b.append_bit(0);
+    //// try b.append_bit(1);
+
+    //// try b.append_bit(0);
+    //// try b.append_bit(1);
+    //// try b.append_bit(1);
+    //// try b.append_bit(0);
+    //// try b.append_bit(1);
+    //// try b.append_bit(1);
+    //// try b.append_bit(1);
+    //// try b.append_bit(1);
+
+    //// for (b.bytes.items) |item| {
+    ////     print("{} ", .{ item });
+    //// }
 
     arena.deinit();
 }

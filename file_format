@@ -1,7 +1,7 @@
 
 Integers are little endian.
 
-VALUE:      [52 5A] 2*U8
+VALUE:      [52 5A] U8*2
 PURPOSE:    Signature. "RZ" (Rendello Zip).
 
 VALUE:      U8
@@ -20,7 +20,7 @@ PURPOSE:    The bytes present in the file, ordered first by bit count and then
 
 VALUE:      U3
 PURPOSE:    End-padding, 0 to 7 bits to ignore at the end of the file. Necessary
-            as compressed text may not be byte-aligned.
+            as compressed text may not be byte-aligned. Values 8 and 9 are errors.
 
 VALUE:      (variable)
 PURPOSE:    Compressed text.
