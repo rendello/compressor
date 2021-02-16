@@ -145,30 +145,30 @@ fn entry_list_build(node: *Node, bit_count: u8, entries: *ArrayList(Entry)) std.
 
 /// The pattern of bits to map a byte to. Essentially just a big integer and
 /// the number of bits that are used.
-const BitPattern = struct {
+const CodeWord = struct {
     pattern: u64 = undefined,
     used: u8 = undefined,
 
     /// Get bit at index of pattern. Left to right.
-    fn get_bit(self: BitPattern, index: u8) ?u1 {
+    fn get_bit(self: CodeWord, index: u8) ?u1 {
         // (Subtract one from `.used` as indexing is zero-based.)
         return @intCast(u1, ((self.pattern) >> @intCast(u6, self.used-1-index)) & 1);
     }
 
     // fixme: Currently off by one
-    fn print_bits(self: BitPattern) void {
+    fn print_bits(self: CodeWord) void {
         var j: u8 = 0;
         while (j < self.used) : (j += 1) {
             print("{}", .{self.get_bit(j)});
         }
-        print("\t\t{}\n", .{self.used});
+        print("\n", .{});
     }
 };
 
 /// Build and return canonical table from the Huffman tree.
 // todo: use package-merge algorithm to ensure length-limited codes.
 // fixme: many codes getting assigned twice?
-fn table_build(root_node: *Node) !*[256]?BitPattern {
+fn table_build(root_node: *Node) !*[256]?CodeWord {
 
     // Build and sort list of entries.
     var entries = ArrayList(Entry).init(allocator);
@@ -186,12 +186,12 @@ fn table_build(root_node: *Node) !*[256]?BitPattern {
     //   shifted over to the right by the difference. Right shift and update
     //   `used` bits.
 
-    var map = try allocator.create([256]?BitPattern);
-    map.* = [_]?BitPattern {null} ** 256;
+    var map = try allocator.create([256]?CodeWord);
+    map.* = [_]?CodeWord {null} ** 256;
 
     var used: u8 = entries.items[0].bit_count;
     var pattern: u64 = 0;
-    map[entries.items[0].byte] = BitPattern{.pattern=pattern, .used=used};
+    map[entries.items[0].byte] = CodeWord{.pattern=pattern, .used=used};
 
     for (entries.items[1..]) |entry| {
         pattern += 1;
@@ -201,10 +201,7 @@ fn table_build(root_node: *Node) !*[256]?BitPattern {
             pattern <<= @intCast(u6, bc_diff);
             used += bc_diff;
         }
-        var b = BitPattern{.pattern=pattern, .used=used};
-        b.print_bits();
-        print("{b}\n\n", .{b.pattern});
-        map[entry.byte] = b;
+        map[entry.byte] = CodeWord{.pattern=pattern, .used=used};
     }
     return map;
 }
