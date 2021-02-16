@@ -159,7 +159,7 @@ const BitPattern = struct {
 /// Build and return canonical table from the Huffman tree.
 // todo: use package-merge algorithm to ensure length-limited codes.
 // todo: return array of 256 instead of hash map
-fn table_build(root_node: *Node) !*std.AutoHashMap(u8, BitPattern) {
+fn table_build(root_node: *Node) !*[256]?BitPattern {
 
     // Build and sort list of entries.
     var entries = ArrayList(Entry).init(allocator);
@@ -177,12 +177,12 @@ fn table_build(root_node: *Node) !*std.AutoHashMap(u8, BitPattern) {
     //   shifted over to the right by the difference. Right shift and update
     //   `used` bits.
 
-    var map = try allocator.create(std.AutoHashMap(u8, BitPattern));
-    map.* = std.AutoHashMap(u8, BitPattern).init(allocator);
+    var map = try allocator.create([256]?BitPattern);
+    map.* = [_]?BitPattern {null} ** 256;
 
     var used: u8 = entries.items[0].bit_count;
     var pattern: u64 = 0;
-    try map.put(entries.items[0].byte, BitPattern{.pattern=pattern, .used=used});
+    map[entries.items[0].byte] = BitPattern{.pattern=pattern, .used=used};
 
     for (entries.items[1..]) |entry| {
         pattern += 1;
@@ -192,7 +192,7 @@ fn table_build(root_node: *Node) !*std.AutoHashMap(u8, BitPattern) {
             pattern <<= @intCast(u6, bc_diff);
             used += bc_diff;
         }
-        try map.put(entry.byte, BitPattern{.pattern=pattern, .used=used});
+        map[entry.byte] = BitPattern{.pattern=pattern, .used=used};
     }
     return map;
 }
@@ -208,8 +208,8 @@ pub fn main() !void {
 
     var i: u8 = 0;
     while (i < 255) : (i += 1) {
-        if (t.get(i) != null) {
-            print("{} {c} = {b}\n", .{i, i, t.get(i).?.pattern});
+        if (t[i] != null) {
+            print("{} {c} = {b}\n", .{i, i, t[i].?.pattern});
         }
     }
 
