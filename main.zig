@@ -53,7 +53,7 @@ fn compare_nodes_desc(ctx: void, a: *Node, b: *Node) bool {
     return a.get_count() > b.get_count();
 }
 
-/// Build binary tree.
+/// Build Huffman (binary) tree.
 fn tree_build(text: []const u8) !*Node {
 
     // Build ArrayList of pointers to alloc'd leaf nodes.
@@ -133,7 +133,7 @@ fn compare_entries(ctx: void, a: Entry, b: Entry) bool {
     }
 }
 
-/// Fill `entries` list by walking the tree recurively.
+/// Fill `entries` list by walking the tree recursively.
 fn entry_list_build(node: *Node, bit_count: u8, entries: *ArrayList(Entry)) std.mem.Allocator.Error!void {
     if (node.* == .internal) {
         try entry_list_build(node.internal.left, bit_count+1, entries);
@@ -150,15 +150,24 @@ const BitPattern = struct {
     used: u8 = undefined,
 
     /// Get bit at index of pattern. Left to right.
-    // ? will need to return error
     fn get_bit(self: BitPattern, index: u8) ?u1 {
-        return @intCast(u1, ((self.pattern) >> (self.bits_used-index)) & 1);
+        // (Subtract one from `.used` as indexing is zero-based.)
+        return @intCast(u1, ((self.pattern) >> @intCast(u6, self.used-1-index)) & 1);
+    }
+
+    // fixme: Currently off by one
+    fn print_bits(self: BitPattern) void {
+        var j: u8 = 0;
+        while (j < self.used) : (j += 1) {
+            print("{}", .{self.get_bit(j)});
+        }
+        print("\t\t{}\n", .{self.used});
     }
 };
 
 /// Build and return canonical table from the Huffman tree.
 // todo: use package-merge algorithm to ensure length-limited codes.
-// todo: return array of 256 instead of hash map
+// fixme: many codes getting assigned twice?
 fn table_build(root_node: *Node) !*[256]?BitPattern {
 
     // Build and sort list of entries.
@@ -186,13 +195,16 @@ fn table_build(root_node: *Node) !*[256]?BitPattern {
 
     for (entries.items[1..]) |entry| {
         pattern += 1;
-        var bc_diff: u8 = entry.bit_count - used;
 
-        if (bc_diff != 0) {
+        var bc_diff: u8 = entry.bit_count - used;
+        if (bc_diff > 0) {
             pattern <<= @intCast(u6, bc_diff);
             used += bc_diff;
         }
-        map[entry.byte] = BitPattern{.pattern=pattern, .used=used};
+        var b = BitPattern{.pattern=pattern, .used=used};
+        b.print_bits();
+        print("{b}\n\n", .{b.pattern});
+        map[entry.byte] = b;
     }
     return map;
 }
@@ -206,12 +218,15 @@ pub fn main() !void {
     var root: *Node = try tree_build(@embedFile("main.zig"));
     var t = try table_build(root);
 
-    var i: u8 = 0;
-    while (i < 255) : (i += 1) {
-        if (t[i] != null) {
-            print("{} {c} = {b}\n", .{i, i, t[i].?.pattern});
-        }
-    }
+    /////var i: u8 = 0;
+    /////while (i < 255) : (i += 1) {
+    /////    if (t[i] != null) {
+    /////        print("{} {c} = ", .{i, i});
+    /////        t[i].?.print_bits();
+    /////    } else {
+    /////        //print("{} {c} = n/a\n", .{i, i});
+    /////    }
+    /////}
 
     //// var b = try BitList.init(allocator);
 
