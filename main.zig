@@ -102,6 +102,7 @@ pub const BitList = struct {
     pub fn init(a: *std.mem.Allocator) !BitList {
         return BitList {.bytes = std.ArrayList(u8).init(a)};
     }
+
     /// Shift bits into list, left-to-right. Add bytes if needed.
     pub fn append_bit(self: *BitList, bit: u1) !void {
         if (self.bytes.items.len*8 < self.bit_index+1) {
@@ -112,13 +113,31 @@ pub const BitList = struct {
         }
         self.bit_index += 1;
     }
+
     pub fn get_trailing_bits(self: *BitList) u3 {
         return @intCast(u3, self.bit_index-(self.bit_index/8*8));
     }
-    pub fn append_code_word(self: BitList, cw: CodeWord) !void {
+
+    pub fn append_code_word(self: *BitList, cw: CodeWord) !void {
         var i: u8 = 0;
         while (i < cw.used) : (i += 1) {
-            self.append_bit(cw.get_bit(i));
+            try self.append_bit(cw.get_bit(i));
+        }
+    }
+
+    pub fn append_bytes(self: *BitList, bytes: []u8) !void {
+        for (bytes) |byte| {
+            var i: u8 = 0;
+            while (i < 8) : (i += 1) {
+                try self.append_bit(@intCast(u1, (byte >> @intCast(u3, 7 - i)) & 1));
+            }
+        }
+    }
+
+    pub fn append_padding(self: *BitList, count: u32) !void {
+        var i: i32 = 0;
+        while (i < count) : (i += 1) {
+            try self.append_bit(0);
         }
     }
 };
@@ -156,7 +175,7 @@ const CodeWord = struct {
     used: u8 = undefined,
 
     /// Get bit at index of pattern. Left to right.
-    fn get_bit(self: CodeWord, index: u8) ?u1 {
+    fn get_bit(self: CodeWord, index: u8) u1 {
         // (Subtract one from `.used` as indexing is zero-based.)
         return @intCast(u1, ((self.pattern) >> @intCast(u6, self.used-1-index)) & 1);
     }
@@ -222,45 +241,44 @@ fn hash_FNV1a(data: []const u8) u32 {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+fn encode(text: []const u8) !void {
+    var table = try table_build(try tree_build(text));
+
+    var i: u8 = 0;
+    while (i < 255) : (i += 1) {
+        if (table[i] != null) {
+            print("{} {c} = ", .{i, i});
+            table[i].?.print_bits();
+        } else {
+            //print("{} {c} = n/a\n", .{i, i});
+        }
+    }
+
+
+    var data = try BitList.init(allocator);
+    try data.append_padding(53);
+
+    for (text) |byte| {
+        //print("{c}", .{ table[byte] });
+        table[byte].?.print_bits();
+        try data.append_code_word(table[byte].?);
+    }
+
+    for (data.bytes.items) |item| {
+        print("{X:0>2}", .{ item });
+    }
+    print("\n", .{});
+}
+
 pub fn main() !void {
     print("\n\n============\n----\n", .{});
 
-    var root: *Node = try tree_build(@embedFile("main.zig"));
-    var t = try table_build(root);
+    //try encode(@embedFile("main.zig"));
 
-    /////var i: u8 = 0;
-    /////while (i < 255) : (i += 1) {
-    /////    if (t[i] != null) {
-    /////        print("{} {c} = ", .{i, i});
-    /////        t[i].?.print_bits();
-    /////    } else {
-    /////        //print("{} {c} = n/a\n", .{i, i});
-    /////    }
-    /////}
-
-    //// var b = try BitList.init(allocator);
-
-    //// try b.append_bit(0);
-    //// try b.append_bit(1);
-    //// try b.append_bit(1);
-    //// try b.append_bit(1);
-    //// try b.append_bit(1);
-    //// try b.append_bit(0);
-    //// try b.append_bit(0);
-    //// try b.append_bit(1);
-
-    //// try b.append_bit(0);
-    //// try b.append_bit(1);
-    //// try b.append_bit(1);
-    //// try b.append_bit(0);
-    //// try b.append_bit(1);
-    //// try b.append_bit(1);
-    //// try b.append_bit(1);
-    //// try b.append_bit(1);
-
-    //// for (b.bytes.items) |item| {
-    ////     print("{} ", .{ item });
-    //// }
+    // fixme: encoding breaks with large map
+    //try encode(@embedFile("/home/gtgt9/Books/pride_and_prejudice_shavian.epub"));
+    //try encode(@embedFile("/home/gtgt9/Books/Aliss.epub"));
+    try encode(@embedFile("/home/gtgt9/Projects/TempleOS_Utils/Utils.HC"));
 
     arena.deinit();
 }
