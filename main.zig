@@ -1,14 +1,16 @@
+// SPDX-License-Identifier: BSD-2-Clause
+
+// https://news.ycombinator.com/item?id=12334270
+
 const std = @import("std");
 
 const print = std.debug.print;
-
-const ArrayList = std.ArrayList;
 
 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 var allocator = &arena.allocator;
 
 
-// Tree construction ///////////////////////////////////////////////////////////
+// Tree construction ===========================================================
 
 const NodeTag = enum {
     internal,
@@ -54,6 +56,11 @@ fn compare_nodes_desc(ctx: void, a: *Node, b: *Node) bool {
 }
 
 /// Build Huffman (binary) tree.
+// todo: read files through 4K / page-sized chunks.
+//       Would this matter? Buffer size for the compressed file would still be
+//       large. Can't chunk compressed buffer easily since header data at the
+//       start of the file changes at end of processing.
+// todo: use package-merge algorithm to ensure length-limited codes.
 fn tree_build(text: []const u8) !*Node {
 
     // Build ArrayList of pointers to alloc'd leaf nodes.
@@ -71,6 +78,12 @@ fn tree_build(text: []const u8) !*Node {
         var node: *Node = try allocator.create(Node);
         node.* = Node { .leaf = .{ .byte = byte, .count = 1 } };
         try nodes.append(node);
+    }
+
+    for (nodes.items) |n| {
+        if (n.* == .leaf) {
+            print("{X} {c} = {}\n", .{n.leaf.byte, n.leaf.byte, n.get_count()});
+        }
     }
 
     // Build tree.
@@ -92,7 +105,7 @@ fn tree_build(text: []const u8) !*Node {
     return nodes.pop();  // Tree root.
 }
 
-// BitList /////////////////////////////////////////////////////////////////////
+// BitList =====================================================================
 
 /// An ArrayList of bytes that can have bits appended to it directly.
 pub const BitList = struct {
@@ -109,12 +122,12 @@ pub const BitList = struct {
             try self.bytes.append(0);
         }
         if (bit == 1) {
-            self.bytes.items[self.bit_index/8] |= @as(u8, 128) >> self.get_trailing_bits();
+            self.bytes.items[self.bit_index/8] |= @as(u8, 128) >> self.get_trailing_bit_count();
         }
         self.bit_index += 1;
     }
 
-    pub fn get_trailing_bits(self: *BitList) u3 {
+    pub fn get_trailing_bit_count(self: *BitList) u3 {
         return @intCast(u3, self.bit_index-(self.bit_index/8*8));
     }
 
@@ -134,6 +147,20 @@ pub const BitList = struct {
         }
     }
 
+   // pub fn append(self: *BitList, comptime T: type, data: T) !void {
+   //     var i: u32 = 0;
+   //     while (i < @sizeOf(T)) : (i += 1) {
+   //         try self.append_bit(@intCast(u1, (data >> (@sizeOf(T)-1) - i) & 1));
+   //     }
+   // }
+
+    pub fn append_byte(self: *BitList, byte: u8) !void {
+        var i: u8 = 0;
+        while (i < 8) : (i += 1) {
+            try self.append_bit(@intCast(u1, (byte >> @intCast(u3, 7 - i)) & 1));
+        }
+    }
+
     pub fn append_padding(self: *BitList, count: u32) !void {
         var i: i32 = 0;
         while (i < count) : (i += 1) {
@@ -142,11 +169,11 @@ pub const BitList = struct {
     }
 };
 
-// Table construction //////////////////////////////////////////////////////////
+// Table construction ==========================================================
 
 const Entry = struct {
     byte: u8,
-    bit_count: u8
+    bit_count: u6
 };
 
 /// Sort first by bit count, then by numerical precedence. Ascending.
@@ -159,7 +186,7 @@ fn compare_entries(ctx: void, a: Entry, b: Entry) bool {
 }
 
 /// Fill `entries` list by walking the tree recursively.
-fn entry_list_build(node: *Node, bit_count: u8, entries: *ArrayList(Entry)) std.mem.Allocator.Error!void {
+fn entry_list_build(node: *Node, bit_count: u6, entries: *std.ArrayList(Entry)) std.mem.Allocator.Error!void {
     if (node.* == .internal) {
         try entry_list_build(node.internal.left, bit_count+1, entries);
         try entry_list_build(node.internal.right, bit_count+1, entries);
@@ -189,12 +216,20 @@ const CodeWord = struct {
     }
 };
 
+/// Although `map` is all that is needed to encode the data, `entries` provides
+/// the orer for the bytes, which is required to build the canonical header.
+const Table = struct {
+    map: [256]?CodeWord,
+    entries: std.ArrayList(Entry)
+};
+
 /// Build and return canonical table from the Huffman tree.
-// todo: use package-merge algorithm to ensure length-limited codes.
-fn table_build(root_node: *Node) !*[256]?CodeWord {
+// todo: also return sorted entries and bit-length counts so table can be
+//       canonically encoded in the file.
+fn table_build(root_node: *Node) !*Table {
 
     // Build and sort list of entries.
-    var entries = ArrayList(Entry).init(allocator);
+    var entries = std.ArrayList(Entry).init(allocator);
     try entry_list_build(root_node, 0, &entries);
     std.sort.sort(Entry, entries.items, {}, compare_entries);
 
@@ -209,8 +244,7 @@ fn table_build(root_node: *Node) !*[256]?CodeWord {
     //   shifted over to the right by the difference. Right shift and update
     //   `used` bits.
 
-    var map = try allocator.create([256]?CodeWord);
-    map.* = [_]?CodeWord {null} ** 256;
+    var map = [_]?CodeWord {null} ** 256;
 
     var used: u8 = entries.items[0].bit_count;
     var pattern: u64 = 0;
@@ -226,10 +260,13 @@ fn table_build(root_node: *Node) !*[256]?CodeWord {
         }
         map[entry.byte] = CodeWord{.pattern=pattern, .used=used};
     }
-    return map;
+    var t = try allocator.create(Table);
+    t.* = Table { .map=map, .entries=entries };
+
+    return t;
 }
 
-// Checksum ////////////////////////////////////////////////////////////////////
+// Checksum ====================================================================
 
 fn hash_FNV1a(data: []const u8) u32 {
     var hash: u32 = 2166136261;
@@ -239,46 +276,80 @@ fn hash_FNV1a(data: []const u8) u32 {
     return hash;
 }
 
-////////////////////////////////////////////////////////////////////////////////
+// =============================================================================
 
+/// Encode entire file / stream.
 fn encode(text: []const u8) !void {
     var table = try table_build(try tree_build(text));
 
     var i: u8 = 0;
     while (i < 255) : (i += 1) {
-        if (table[i] != null) {
+        if (table.map[i]) |element| {
             print("{} {c} = ", .{i, i});
-            table[i].?.print_bits();
-        } else {
-            //print("{} {c} = n/a\n", .{i, i});
+            element.print_bits();
         }
     }
 
-
     var data = try BitList.init(allocator);
-    try data.append_padding(53);
 
-    for (text) |byte| {
-        //print("{c}", .{ table[byte] });
-        table[byte].?.print_bits();
-        try data.append_code_word(table[byte].?);
-    }
+    // Write signature and make room for header fields.
+    var signature = [_]u8{'R','Z'};
+    try data.append_bytes(signature[0..]);
+    try data.append_padding(49);
 
+//    // => Add count of bit count values.
+//    // => Add bit count values.
+//
+//    var bc_counts = [_]u6 {0} ** 256;
+//    var highest_bit_count: u6 = 0;
+//
+//    for (table.entries.items) |e| {
+//        bc_counts[e.bit_count] += 1;
+//        if (e.bit_count > highest_bit_count) {
+//            highest_bit_count = e.bit_count;
+//        }
+//    }
+//    try data.append(u6, highest_bit_count);
+//    for (bc_counts[0..highest_bit_count]) |bc_count| {
+//        data.append(u6, bc_count);
+//    }
+//
+//
+//    // Append present bytes in order.
+//    for (table.entries.items) |e| {
+//        try data.append_byte(e.byte);
+//    }
+//
+//    // Encode and append data.
+//    for (text) |byte| {
+//        try data.append_code_word(table.map[byte].?);
+//    }
+//
+//    // Calculate header fields, add to header.
+//    const trailing_bit_count: u3 = data.get_trailing_bit_count();
+//
     for (data.bytes.items) |item| {
         print("{X:0>2}", .{ item });
     }
     print("\n", .{});
 }
 
+/// Decode entire file / stream.
+fn decode(data: []const u8) !void {
+    // todo: decode using u64 and bitmasks.
+    // iterate through "table" (array) from most to least likely, ie lowest
+    // numerical value to highest.
+    // No need for hash table, all values will be numerically unique.
+
+    // Bitmasked values will have to be shifted?
+    // Could bitshift values in table instead.
+}
+
+
 pub fn main() !void {
     print("\n\n============\n----\n", .{});
 
-    //try encode(@embedFile("main.zig"));
-
-    // fixme: encoding breaks with large map
-    //try encode(@embedFile("/home/gtgt9/Books/pride_and_prejudice_shavian.epub"));
-    //try encode(@embedFile("/home/gtgt9/Books/Aliss.epub"));
-    try encode(@embedFile("/home/gtgt9/Projects/TempleOS_Utils/Utils.HC"));
+    try encode(@embedFile("main.zig"));
 
     arena.deinit();
 }
