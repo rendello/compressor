@@ -9,9 +9,9 @@ const std = @import("std");
 const math = std.math;
 const expect = std.testing.expect;
 const expectError = std.testing.expectError;
+const print = std.debug.print;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
-
 
 inline fn bits_needed_to_represent_int(x: usize) usize {
     return if (x == 0) 0 else math.log2_int(usize, x) + 1;
@@ -35,31 +35,126 @@ const Item = struct {
     token: ?u16
 };
 
-fn package(allocator: *Allocator, items: ArrayList) []Item {
+
+fn compare_items_asc(_: void, a: Item, b: Item) bool {
+    return a.count < b.count;
+}
+
+/// Remove unused items, sort by count.
+fn items_prepare(allocator: *Allocator, items: []const Item) ![]const Item {
+    var prepared = std.ArrayList(Item).init(allocator);
+    for (items) |item| {
+        if (item.count > 0) try prepared.append(item);
+    }
+    const prepared_as_slice = prepared.toOwnedSlice();
+    std.sort.sort(Item, prepared_as_slice, {}, compare_items_asc);
+    return prepared_as_slice;
+}
+
+fn package(allocator: *Allocator, items: []const Item) ![]const Item {
     var packaged = std.ArrayList(Item).init(allocator);
 
     var i: usize = 0;
     while (i+2 <= items.len) : (i+=2) {
         const pairwise_sum = items[i].count + items[i+1].count;
         const p = Item {.count = pairwise_sum, .token = null};
-        packaged.append(p);
+        try packaged.append(p);
     }
     return packaged.toOwnedSlice();
 }
 
-fn merge(allocator: *Allocator, items: []Item, packages: []Item) []Items {
+fn merge(allocator: *Allocator, items: []const Item, packages: []const Item) ![]const Item {
     var merged = std.ArrayList(Item).init(allocator);
+    // Merged it EMPTY!!! Copy items!!
+    // Note: what is going on?
 
-    for (packages) |p| {
-        for (items) |item, i| {
-            if (item.count >= p.count or i == items.len) {
-                try list.insert(allocator, i, item);
+    for (packages) |package_| {
+        for (items) |item| {
+            if (item.count >= p.count) {
+                try merged.append(package_);
+            } else {
+                try merged.append(item);
             }
         }
     }
     return merged.toOwnedSlice();
 }
 
+
+fn package_merge(allocator: *Allocator, items: []const Item, max_bit_length: usize) !void {
+    defer allocator.free(items);
+
+    // Sort Items. Remove unused Items.
+    var prepared_items = try items_prepare(allocator, items);
+    defer allocator.free(prepared_items);
+
+    // for iteration in max_bit_length:
+    //     package
+    //     merge
+    var iterations = std.ArrayList([]const Item).init(allocator);
+    var prev_items = prepared_items;
+    var i: u32 = 0;
+    while (i < max_bit_length) : (i += 1) {
+        const packaged = try package(allocator, prev_items);
+        const merged = try merge(allocator, prepared_items, packaged);
+        try iterations.append(merged);
+        prev_items = iterations.items[iterations.items.len];
+    }
+
+
+    // for each slice in the arraylist of iterations:
+    //     bit_len += 1
+    //     for each
+}
+
+//test "package merge" {
+//    const allocator = std.heap.page_allocator;
+//    const items = [_]Item{
+//        Item{
+//            .token = 'A',
+//            .count = 10
+//        },
+//        Item{
+//            .token = 'C',
+//            .count = 13
+//        },
+//        Item{
+//            .token = 'R',
+//            .count = 10
+//        },
+//        Item{
+//            .token = 'L',
+//            .count = 1
+//        },
+//    };
+//
+//    try package_merge(allocator, items[0..], 16);
+//}
+
+pub fn main() !void {
+    const allocator = std.heap.page_allocator;
+    const items = [_]Item{
+        Item{
+            .token = 'A',
+            .count = 10
+        },
+        Item{
+            .token = 'C',
+            .count = 13
+        },
+        Item{
+            .token = 'R',
+            .count = 10
+        },
+        Item{
+            .token = 'L',
+            .count = 1
+        },
+    };
+
+    try package_merge(allocator, items[0..], 16);
+    
+}
 
 const PMError = error { NotEnoughBits, NoItemsToEncode };
 
