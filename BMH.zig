@@ -74,11 +74,10 @@ inline fn check_match(haystack: []const u8, needle: []const u8, bad_byte_table: 
 }
 
 pub fn search(allocator: *Allocator, haystack: []const u8, needle: []const u8) ![][]const u8 {
-    assert(needle.len <= 256);
-    assert(haystack.len > needle.len);
-
     const bad_byte_table = try preprocess(allocator, needle);
     var matches = ArrayList([]const u8).init(allocator);
+
+    if (haystack.len < needle.len) return matches.toOwnedSlice(); // Empty.
 
     var i: usize = 0;
     while (i < haystack.len) {
@@ -98,17 +97,17 @@ pub fn search(allocator: *Allocator, haystack: []const u8, needle: []const u8) !
 test "search" {
     const allocator = std.heap.page_allocator;
     {
-        const res_1 = try search(allocator, "Hello, world!", "!");
-        defer allocator.free(res_1);
-        try expect(res_1[0][0] == '!');
+        const res = try search(allocator, "Hello, world!", "!");
+        defer allocator.free(res);
+        try expect(res[0][0] == '!');
     }
     {
-        const res_2 = try search(allocator, "I am the very model of a modern major general.", "mo");
-        defer allocator.free(res_2);
-        try expect(res_2.len == 2);
-        try expect(std.mem.eql(u8, res_2[0], "mo"));
-        try expect(std.mem.eql(u8, res_2[1], "mo"));
-        try expect(@ptrToInt(res_2[0].ptr) < @ptrToInt(res_2[1].ptr));
+        const res = try search(allocator, "I am the very model of a modern major general.", "mo");
+        defer allocator.free(res);
+        try expect(res.len == 2);
+        try expect(std.mem.eql(u8, res[0], "mo"));
+        try expect(std.mem.eql(u8, res[1], "mo"));
+        try expect(@ptrToInt(res[0].ptr) < @ptrToInt(res[1].ptr));
     }
     {
         const str =
@@ -121,11 +120,13 @@ test "search" {
         \\Hey you, don't help them to bury the light
         \\Don't give in without a fight
         ;
-        const res_3 = try search(allocator, str, "Hey you, ");
-        defer allocator.free(res_3);
-        try expect(res_3.len == 3);
+        const res = try search(allocator, str, "Hey you, ");
+        defer allocator.free(res);
+        try expect(res.len == 3);
     }
-}
-
-pub fn main() !void {
+    {
+        const res = try search(allocator, "A haystack.", "A longer needle.");
+        defer allocator.free(res);
+        try expect(res.len == 0);
+    }
 }
