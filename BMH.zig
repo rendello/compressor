@@ -13,7 +13,8 @@
 //! with the corresponding byte in the haystack. If it matches, the next-to-last byte is compared
 //! and et cetera. If, at any point, there is a mismatch, the needle will jump forward `n` bytes,
 //! where `n` is the value calculated in the preprocess step for the first byte checked against in
-//! the haystack.
+//! the haystack. If there is no value for `n`, as in, the character in the haystack is not present
+//! in the needle, skip the entire length of the needle.
 
 const std = @import("std");
 const expect = std.testing.expect;
@@ -26,8 +27,6 @@ const assert = std.debug.assert;
 
 
 fn preprocess(allocator: *Allocator, pattern: []const u8) !AutoHashMap(u8, u8) {
-    assert(pattern.len <= 256);
-
     var map = AutoHashMap(u8, u8).init(allocator);
 
     for (pattern[0..pattern.len-1]) |byte, index| {
@@ -50,9 +49,83 @@ test "preprocess" {
     try expect(map.get('H').? == 5);
 }
 
-pub fn main() !void {
-    const allocator = std.heap.page_allocator;
-    var map = try preprocess(allocator, "TOOTH");
-    print("{}", .{map});
+const MatchResult = union(enum) {
+    match,
+    no_match,
+    skip: usize
+};
+
+/// No match: return count of bytes to skip. Match: return null.
+inline fn check_match(haystack: []const u8, needle: []const u8, bad_byte_table: AutoHashMap(u8, u8)) MatchResult {
+    var i: usize = needle.len;
+    if (needle.len > haystack.len) return .no_match;
+
+    while (i > 0) : (i -= 1) {
+        if (needle[i-1] != haystack[i-1]) {
+            var skip_opt = bad_byte_table.get(haystack[needle.len-1]);
+            if (skip_opt) |skip| {
+                return MatchResult { .skip = skip };
+            } else {
+                return MatchResult { .skip = needle.len };
+            }
+        }
+    }
+    return .match;
 }
 
+pub fn search(allocator: *Allocator, haystack: []const u8, needle: []const u8) ![][]const u8 {
+    assert(needle.len <= 256);
+    assert(haystack.len > needle.len);
+
+    const bad_byte_table = try preprocess(allocator, needle);
+    var matches = ArrayList([]const u8).init(allocator);
+
+    var i: usize = 0;
+    while (i < haystack.len) {
+        var match_result = check_match(haystack[i..], needle, bad_byte_table);
+        switch (match_result) {
+            .no_match => break,
+            .skip  => |skip| i += skip,
+            .match => {
+                try matches.append(haystack[i..i+needle.len]);
+                i += needle.len;
+            }
+        }
+    }
+    return matches.toOwnedSlice();
+}
+
+test "search" {
+    const allocator = std.heap.page_allocator;
+    {
+        const res_1 = try search(allocator, "Hello, world!", "!");
+        defer allocator.free(res_1);
+        try expect(res_1[0][0] == '!');
+    }
+    {
+        const res_2 = try search(allocator, "I am the very model of a modern major general.", "mo");
+        defer allocator.free(res_2);
+        try expect(res_2.len == 2);
+        try expect(std.mem.eql(u8, res_2[0], "mo"));
+        try expect(std.mem.eql(u8, res_2[1], "mo"));
+        try expect(@ptrToInt(res_2[0].ptr) < @ptrToInt(res_2[1].ptr));
+    }
+    {
+        const str =
+        \\Hey you, out there in the cold
+        \\Getting lonely, getting old
+        \\Can you feel me?
+        \\Hey you, standing in the aisles
+        \\With itchy feet and fading smiles
+        \\Can you feel me?
+        \\Hey you, don't help them to bury the light
+        \\Don't give in without a fight
+        ;
+        const res_3 = try search(allocator, str, "Hey you, ");
+        defer allocator.free(res_3);
+        try expect(res_3.len == 3);
+    }
+}
+
+pub fn main() !void {
+}
