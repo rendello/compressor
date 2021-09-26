@@ -18,7 +18,6 @@
 
 const std = @import("std");
 const expect = std.testing.expect;
-const expectError = std.testing.expectError;
 const print = std.debug.print;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
@@ -94,7 +93,7 @@ pub fn search(allocator: *Allocator, haystack: []const u8, needle: []const u8) !
     return matches.toOwnedSlice();
 }
 
-test "search" {
+test "Search." {
     const allocator = std.heap.page_allocator;
     {
         const res = try search(allocator, "Hello, world!", "!");
@@ -110,23 +109,32 @@ test "search" {
         try expect(@ptrToInt(res[0].ptr) < @ptrToInt(res[1].ptr));
     }
     {
-        const str =
-        \\Hey you, out there in the cold
-        \\Getting lonely, getting old
-        \\Can you feel me?
-        \\Hey you, standing in the aisles
-        \\With itchy feet and fading smiles
-        \\Can you feel me?
-        \\Hey you, don't help them to bury the light
-        \\Don't give in without a fight
-        ;
-        const res = try search(allocator, str, "Hey you, ");
-        defer allocator.free(res);
-        try expect(res.len == 3);
-    }
-    {
         const res = try search(allocator, "A haystack.", "A longer needle.");
         defer allocator.free(res);
         try expect(res.len == 0);
+    }
+}
+
+test "Search: needle and haystack the same length." {
+    const allocator = std.heap.page_allocator;
+    {
+        const res = try search(allocator, "A haystack.", "A needle...");
+        defer allocator.free(res);
+        try expect(res.len == 0);
+    }
+    {
+        const res = try search(allocator, "A haystack.", "A haystack.");
+        defer allocator.free(res);
+        try expect(res.len == 1);
+    }
+    {
+        const res = try search(allocator, "A", "B");
+        defer allocator.free(res);
+        try expect(res.len == 0);
+    }
+    {
+        const res = try search(allocator, "A", "A");
+        defer allocator.free(res);
+        try expect(res.len == 1);
     }
 }
