@@ -4,28 +4,26 @@
 //!
 //! # Preprocess step:
 //! The needle that will be searched for is first used to generate a table. Every byte of that
-//! needle will be mapped to (needle_len - byte_index - 1). If the byte occurs multiple times, the
-//! last occurence is used. If the byte is the last in the needle, it is equal to the len of the
+//! needle is mapped to (needle_len - byte_index - 1). If the byte occurs multiple times, the
+//! last occurence is used. If the byte is the last in the needle, it is equal to the length of the
 //! needle, unless it already has a value, in which case it's left as-is.
 //!
 //! # Search step:
 //! The needle is lined up with the start of the haystack. The last byte of the needle is compared
 //! with the corresponding byte in the haystack. If it matches, the next-to-last byte is compared
-//! and et cetera. If, at any point, there is a mismatch, the needle will jump forward `n` bytes,
+//! and et cetera. If, at any point, there is a mismatch, the needle is moved forward `n` bytes,
 //! where `n` is the value calculated in the preprocess step for the first byte checked against in
-//! the haystack. If there is no value for `n`, as in, the character in the haystack is not present
-//! in the needle, skip the entire length of the needle.
+//! the haystack. If there is no value for the key `n`, the character in the haystack is not
+//! present in the needle, and the entire length of the needle is skipped.
 
 const std = @import("std");
-const expect = std.testing.expect;
-const print = std.debug.print;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const AutoHashMap = std.AutoHashMap;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 
-fn preprocess(allocator: *Allocator, pattern: []const u8) !AutoHashMap(u8, u8) {
+fn generate_bad_bytes_table(allocator: *Allocator, pattern: []const u8) !AutoHashMap(u8, u8) {
     var map = AutoHashMap(u8, u8).init(allocator);
 
     for (pattern[0..pattern.len-1]) |byte, index| {
@@ -40,9 +38,9 @@ fn preprocess(allocator: *Allocator, pattern: []const u8) !AutoHashMap(u8, u8) {
     return map;
 }
 
-test "preprocess" {
+test "generate_bad_bytes_table" {
     const allocator = std.heap.page_allocator;
-    var map = try preprocess(allocator, "TOOTH");
+    var map = try generate_bad_bytes_table(allocator, "TOOTH");
     try expect(map.get('T').? == 1);
     try expect(map.get('O').? == 2);
     try expect(map.get('H').? == 5);
@@ -72,7 +70,7 @@ inline fn check_match(haystack: []const u8, needle: []const u8, bad_byte_table: 
 }
 
 pub fn search(allocator: *Allocator, haystack: []const u8, needle: []const u8) ![][]const u8 {
-    var bad_byte_table = try preprocess(allocator, needle);
+    var bad_byte_table = try generate_bad_bytes_table(allocator, needle);
     defer bad_byte_table.deinit();
 
     var matches = ArrayList([]const u8).init(allocator);
