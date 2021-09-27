@@ -54,7 +54,6 @@ const MatchResult = union(enum) {
     skip: usize
 };
 
-/// No match: return count of bytes to skip. Match: return null.
 inline fn check_match(haystack: []const u8, needle: []const u8, bad_byte_table: AutoHashMap(u8, u8)) MatchResult {
     var i: usize = needle.len;
     if (needle.len > haystack.len) return .no_match;
@@ -73,7 +72,9 @@ inline fn check_match(haystack: []const u8, needle: []const u8, bad_byte_table: 
 }
 
 pub fn search(allocator: *Allocator, haystack: []const u8, needle: []const u8) ![][]const u8 {
-    const bad_byte_table = try preprocess(allocator, needle);
+    var bad_byte_table = try preprocess(allocator, needle);
+    defer bad_byte_table.deinit();
+
     var matches = ArrayList([]const u8).init(allocator);
 
     if (haystack.len < needle.len) return matches.toOwnedSlice(); // Empty.
@@ -104,8 +105,8 @@ test "Search." {
         const res = try search(allocator, "I am the very model of a modern major general.", "mo");
         defer allocator.free(res);
         try expect(res.len == 2);
-        try expect(std.mem.eql(u8, res[0], "mo"));
-        try expect(std.mem.eql(u8, res[1], "mo"));
+        try std.testing.expectEqualSlices(u8, res[0], "mo");
+        try std.testing.expectEqualSlices(u8, res[1], "mo");
         try expect(@ptrToInt(res[0].ptr) < @ptrToInt(res[1].ptr));
     }
     {
@@ -113,10 +114,6 @@ test "Search." {
         defer allocator.free(res);
         try expect(res.len == 0);
     }
-}
-
-test "Search: needle and haystack the same length." {
-    const allocator = std.heap.page_allocator;
     {
         const res = try search(allocator, "A haystack.", "A needle...");
         defer allocator.free(res);
