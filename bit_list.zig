@@ -1,5 +1,7 @@
 // Gaven Rendell, 2021.
 
+// Todo: the order of the bits in the deflate format is different.
+
 const std = @import("std");
 const expect = std.testing.expect;
 
