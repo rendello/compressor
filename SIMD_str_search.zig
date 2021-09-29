@@ -20,15 +20,23 @@ inline fn vector_bool_to_int(comptime T: type, comptime size: usize, vector: Vec
     return @select(u8, vector, @splat(vec_size, @as(u8, 1)), @splat(vec_size, @as(u8, 0)));
 }
 
-pub fn search(haystack: []const u8, needle: []const u8) void {
-    const f = @splat(vec_size, @as(u8, needle[0]));
-    const l = @splat(vec_size, @as(u8, needle[needle.len-1]));
+const Match = struct {
+    len: usize,
+    distance: ?u16
+};
 
-    if (haystack.len > vec_size) {
-        var i: usize = 0;
-        while (i + vec_size + needle.len < haystack.len) : (i += vec_size) {
-            const a: Vector(vec_size, u8) = haystack[i..][0..vec_size].*;
-            const b: Vector(vec_size, u8) = haystack[i+needle.len-1..][0..vec_size].*;
+
+pub fn find_best_match(window: []const u8, search_buff: []const u8) ?Match {
+    var best_match = Match { .len = 3, .distance = null };
+
+    const f = @splat(vec_size, @as(u8, search_buff[0]));
+    var l = @splat(vec_size, @as(u8, search_buff[best_match.len-1]));
+
+    var index: usize = 0;
+    if (window.len > vec_size) {
+        while (index + vec_size + best_match.len < window.len) : (index += vec_size) {
+            const a: Vector(vec_size, u8) = window[index..][0..vec_size].*;
+            const b: Vector(vec_size, u8) = window[index+best_match.len-1..][0..vec_size].*;
 
             const af = vector_bool_to_int(u8, vec_size, (a == f));
             const bl = vector_bool_to_int(u8, vec_size, (b == l));
@@ -37,19 +45,24 @@ pub fn search(haystack: []const u8, needle: []const u8) void {
             if (@reduce(.Add, afbl) != 0) {
                 var j: usize = 0;
                 while (j < vec_size) : (j += 1) {
-                    if (afbl[j] != 0) {
-                        var r = std.mem.eql(u8, haystack[i+j+1..i+j+needle.len-1], needle[1..needle.len-1]);
-                        print("{}", .{r});
+                    if (afbl[j] != 0 and std.mem.eql(u8, window[index+j+1..index+j+best_match.len-1], search_buff[1..best_match.len-1])) {
+                        print("Yes: {}\n", .{index+j});
+
+                        best_match.len = search_buff.len;
+                        best_match.distance = @intCast(u16, window.len) - @intCast(u16, index+j);
+                        l = @splat(vec_size, @as(u8, search_buff[best_match.len-1]));
                     }
                 }
             }
         }
     }
+    return if (best_match.distance != null) best_match else null;
 }
 
 
 pub fn main() !void {
-    search("A cAt clpt cat cet pink and purple cat cot cat! prances about the yard.", "cat");
+    var best_match = find_best_match("A cAt pur clpt purplecat cet pink and purple cat purplcot cat! prances about the yard.", "purplecat");
+    print("{}", .{best_match});
 }
 
 
