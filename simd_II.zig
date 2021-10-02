@@ -48,9 +48,13 @@ inline fn check_potential_match(
     if (std.mem.eql(u8, window[match_start+1..match_start+target_len-1], search_buff[1..target_len-1])) {
         target_len += 1;
         while (window[match_start+target_len] == search_buff[target_len]) {
-            target_len += 1;
+            if (target_len < search_buff.len-1) {
+                target_len += 1;
+            } else {
+                break;
+            }
         }
-        return Match { .len = target_len-1, .distance = window.len - index };
+        return Match { .len = target_len, .distance = window.len - (index + mask_index) };
     } else {
         return null;
     }
@@ -62,9 +66,9 @@ fn find_best_match(window: []const u8, search_buff: []const u8) ?Match {
     var target_len: usize = 3;
 
     const first_byte_mask = vec_splat(search_buff[0]);
-    var last_byte_mask = vec_splat(search_buff[target_len-1]);
+    var last_byte_mask = vec_splat(search_buff[target_len]);
 
-    var index: usize = window.len - 16;
+    var index: usize = (window.len - 16) - target_len;
     while (true) {
         const first_block: Vector(16, u8) = window[index..][0..16].*;
         const last_block:  Vector(16, u8) = window[index+target_len..][0..16].*;
@@ -75,22 +79,26 @@ fn find_best_match(window: []const u8, search_buff: []const u8) ?Match {
         const mask = vec_AND(eq_first, eq_last);
 
         if (@reduce(.Add, mask) != 0) {
-            var mask_index: usize = 16;
-            while (mask_index > 0) {
-                var match_opt = check_potential_match(window, search_buff, index, mask_index, target_len);
-                if (match_opt) |match| {
-                    if (best_match_opt) |best_match| {
-                        if (match.len > best_match.len) {
+            var mask_index: usize = 16-1;
+            while (mask_index > 0) : (mask_index -= 1) {
+                if (mask[mask_index] != 0) {
+                    var match_opt = check_potential_match(window, search_buff, index, mask_index, target_len);
+                    if (match_opt) |match| {
+                        if (best_match_opt) |best_match| {
+                            if (match.len > best_match.len) {
+                                best_match_opt = match;
+                            }
+                        } else {
                             best_match_opt = match;
                         }
-                    } else {
-                        best_match_opt = match;
                     }
                 }
             }
         }
         if (index > 16) {
             index -= 16;
+        } else if (index == 0) {
+            break;
         } else {
             index = 0;
         }
@@ -100,7 +108,7 @@ fn find_best_match(window: []const u8, search_buff: []const u8) ?Match {
 
 
 pub fn main() !void {
-    var best_match = find_best_match("It was the best of times, it was the blurst of times.", "it was the blurst of times.");
+    var best_match = find_best_match("It was the best of times, it was the blurst of times.", "blurst");
     print("{}", .{best_match});
 }
 
