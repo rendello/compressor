@@ -26,42 +26,60 @@ const Match = struct {
 };
 
 
+/// Given a `window` of no larger than 32KiB (as per the DEFLATE spec), and
+/// given a `search_buff` of no smaller than 3 bytes,
+/// return the longest match's length and distance from the end of the window.
+/// If two matches have the same distance, the one closer to the end wins.
+/// If no match > 3 if found, none is returned.
 pub fn find_best_match(window: []const u8, search_buff: []const u8) ?Match {
-    var best_match = Match { .len = 3, .distance = null };
+    var best_match: ?Match = null;
+
+    var target_len: usize = 3;
 
     const f = @splat(vec_size, @as(u8, search_buff[0]));
-    var l = @splat(vec_size, @as(u8, search_buff[best_match.len-1]));
+    var l = @splat(vec_size, @as(u8, search_buff[target_len-1]));
 
     var index: usize = 0;
-    if (window.len > vec_size) {
-        while (index + vec_size + best_match.len < window.len) : (index += vec_size) {
-            const a: Vector(vec_size, u8) = window[index..][0..vec_size].*;
-            const b: Vector(vec_size, u8) = window[index+best_match.len-1..][0..vec_size].*;
+    while (index + vec_size + target_len < window.len) {
+        const a: Vector(vec_size, u8) = window[index..][0..vec_size].*;
+        const b: Vector(vec_size, u8) = window[index+target_len-1..][0..vec_size].*;
 
-            const af = vector_bool_to_int(u8, vec_size, (a == f));
-            const bl = vector_bool_to_int(u8, vec_size, (b == l));
+        const af = vector_bool_to_int(u8, vec_size, (a == f));
+        const bl = vector_bool_to_int(u8, vec_size, (b == l));
 
-            var afbl = af&bl;
-            if (@reduce(.Add, afbl) != 0) {
-                var j: usize = 0;
-                while (j < vec_size) : (j += 1) {
-                    if (afbl[j] != 0 and std.mem.eql(u8, window[index+j+1..index+j+best_match.len-1], search_buff[1..best_match.len-1])) {
-                        print("Yes: {}\n", .{index+j});
+        const afbl = af&bl;
+        if (@reduce(.Add, afbl) != 0) {
+            var j: usize = 0;
+            while (j < vec_size) : (j += 1) {
+                if (afbl[j] != 0 and std.mem.eql(u8, window[index+j+1..index+j+target_len-1], search_buff[1..target_len-1])) {
+                    print("Yes: {} Target: {}\n", .{index+j, target_len});
 
-                        best_match.len = search_buff.len;
-                        best_match.distance = @intCast(u16, window.len) - @intCast(u16, index+j);
-                        l = @splat(vec_size, @as(u8, search_buff[best_match.len-1]));
+                    best_match = Match { .len = target_len, .distance = @intCast(u16, window.len) - @intCast(u16, index+j) };
+                    if (target_len < search_buff.len) {
+                        target_len += 1;
+                        l = @splat(vec_size, @as(u8, search_buff[target_len-1]));
+                    } else {
+                        return best_match;
                     }
                 }
             }
+        } else {
+            index += vec_size;
         }
     }
-    return if (best_match.distance != null) best_match else null;
+    //while (window.len - index > best_match.len) : (index+=1) {
+    //    if (window[index] == search_buff[0]) {
+    //        if (std.mem.eql(u8, window[index..index+best_match.len-1], search_buff))
+
+    //        }
+    //    }
+    //}
+    return best_match;
 }
 
 
 pub fn main() !void {
-    var best_match = find_best_match("A cAt pur clpt purplecat cet pink and purple cat purplcot cat! prances about the yard.", "purplecat");
+    var best_match = find_best_match("A cAt purpl clpt   cet pink  purplect and purple cat purplcot cat! prances pu about the yard...........", "purplecat");
     print("{}", .{best_match});
 }
 
