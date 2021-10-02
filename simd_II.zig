@@ -47,12 +47,8 @@ inline fn check_potential_match(
     // (No need to compare first and last bytes, they've been checked.)
     if (std.mem.eql(u8, window[match_start+1..match_start+target_len-1], search_buff[1..target_len-1])) {
         target_len += 1;
-        while (window[match_start+target_len] == search_buff[target_len]) {
-            if (target_len < search_buff.len-1) {
-                target_len += 1;
-            } else {
-                break;
-            }
+        while (target_len < search_buff.len and window[match_start+target_len] == search_buff[target_len]) {
+            target_len += 1;
         }
         return Match { .len = target_len, .distance = window.len - (index + mask_index) };
     } else {
@@ -84,7 +80,9 @@ fn find_best_match(window: []const u8, search_buff: []const u8) ?Match {
                 if (mask[mask_index] != 0) {
                     var match_opt = check_potential_match(window, search_buff, index, mask_index, target_len);
                     if (match_opt) |match| {
-                        if (best_match_opt) |best_match| {
+                        if (match.len == search_buff.len) {
+                            return match;
+                        } else if (best_match_opt) |best_match| {
                             if (match.len > best_match.len) {
                                 best_match_opt = match;
                             }
@@ -107,8 +105,32 @@ fn find_best_match(window: []const u8, search_buff: []const u8) ?Match {
 }
 
 
+test "find best match" {
+    {
+        var best_match = find_best_match("It was the best of times, it was the blurst of times.", "blurst");
+        try expect(best_match.?.len == 6 and best_match.?.distance == 16);
+    }
+    {
+        var best_match = find_best_match("It is tea time, teatime, time for teas.", "teather");
+        try expect(best_match.?.len == 4 and best_match.?.distance == 23);
+    }
+}
+
+test "find best match prefers last occurence" {
+    {
+        var best_match = find_best_match("Tea tea tea teatime tea teatime tea", "teatime");
+        try expect(best_match.?.len == 7 and best_match.?.distance == 11);
+    }
+    {
+        var best_match = find_best_match("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "AAAA");
+        try expect(best_match.?.len == 4 and best_match.?.distance == 4);
+    }
+}
+
 pub fn main() !void {
-    var best_match = find_best_match("It was the best of times, it was the blurst of times.", "blurst");
+    //var best_match = find_best_match("It was the best of times, it was the blurst of times.", "blurst");
+    //print("{}", .{best_match});
+    var best_match = find_best_match(@embedFile("bible.txt"), "Jesus");
     print("{}", .{best_match});
 }
 
