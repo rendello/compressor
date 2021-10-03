@@ -58,8 +58,7 @@ inline fn check_potential_match(
     }
 }
 
-
-fn find_best_match(window: []const u8, search_buff: []const u8) ?Match {
+fn find_best_match_vector(window: []const u8, search_buff: []const u8) ?Match {
     var best_match_opt: ?Match = null;
     var target_len: usize = 3;
 
@@ -111,6 +110,25 @@ fn find_best_match(window: []const u8, search_buff: []const u8) ?Match {
     return best_match_opt;
 }
 
+fn find_best_match_linear(window: []const u8, search_buff: []const u8) ?Match {
+    var index: usize = 0;
+    while (true) {
+        if (window[index] == search_buff[0]) {
+            
+        }
+    }
+}
+
+pub fn find_best_match(window: []const u8, search_buff: []const u8) ?Match {
+    if (search_buff.len < 3) return null;
+    
+    if (window.len < vec_size + 3) {
+        return find_best_match_linear(window, search_buff);
+    } else {
+        return find_best_match_vector(window, search_buff);
+    }
+}
+
 
 test "find best match" {
     {
@@ -140,10 +158,6 @@ test "find best match at beginning" {
 }
 
 pub fn main() !void {
-    //var best_match = find_best_match(@embedFile("bible.txt"), "Jesus");
-    //print("{}", .{best_match});
+    var best_match = find_best_match(@embedFile("bible.txt"), "1989");
+    print("{}", .{best_match});
 }
-
-
-
-
