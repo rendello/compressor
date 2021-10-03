@@ -25,8 +25,14 @@ inline fn vec_AND(vec_1: Vector(vec_size, bool), vec_2: Vector(vec_size, bool)) 
 }
 
 inline fn quick_eql(a: []const u8, b: []const u8) bool {
+    print("CHARS: ", .{});
+    defer print("\n\n", .{});
     for (a) |item, index| {
-        if (b[index] != item) return false;
+        print("{c}", .{item});
+        if (b[index] != item) {
+            print("(BROKEN)", .{});
+            return false;
+        }
     }
     return true;
 }
@@ -47,11 +53,19 @@ inline fn check_potential_match(
     var target_len = outer_target_len;
 
     // (No need to compare first and last bytes, they've been checked.)
-    if (quick_eql(window[match_start+1..match_start+target_len-1], search_buff[1..target_len-1])) {
-        target_len += 1;
+    print(">>> {s}[{s}]{s}\n", .{ window[match_start-10..match_start], window[match_start..match_start+target_len], window[match_start+target_len..match_start+target_len+10] });
+    print("TARGET: {}\n", .{target_len});
+    //print("{}..{}\n", .{match_start+1, match_start+target_len-1});
+    //print("{}..{}\n", .{1, target_len-1});
+    //print(">>> {s}\n--> {s}\n\n", .{ window[match_start+1..match_start+target_len], search_buff[1..target_len] });
+
+    if (quick_eql(window[match_start+1..match_start+target_len], search_buff[1..target_len])) {
+        print("NEW CHARS:\n", .{});
         while (target_len < search_buff.len and window[match_start+target_len] == search_buff[target_len]) {
+            print("{c} : {c}\n", .{window[match_start+target_len], search_buff[target_len]});
             target_len += 1;
         }
+        print("\n", .{});
         return Match { .len = target_len, .distance = window.len - (index + mask_index) };
     } else {
         return null;
@@ -63,12 +77,13 @@ fn find_best_match_vector(window: []const u8, search_buff: []const u8) ?Match {
     var target_len: usize = 3;
 
     const first_byte_mask = vec_splat(search_buff[0]);
-    var last_byte_mask = vec_splat(search_buff[target_len]);
 
     var index: usize = (window.len - vec_size) - target_len;
-    while (true) {
+    outer: while (true) {
+        const last_byte_mask = vec_splat(search_buff[target_len-1]);
+
         const first_block: Vector(vec_size, u8) = window[index..][0..vec_size].*;
-        const last_block:  Vector(vec_size, u8) = window[index+target_len..][0..vec_size].*;
+        const last_block:  Vector(vec_size, u8) = window[index+target_len-1..][0..vec_size].*;
 
         const eq_first = (first_byte_mask == first_block);
         const eq_last = (last_byte_mask == last_block);
@@ -81,15 +96,17 @@ fn find_best_match_vector(window: []const u8, search_buff: []const u8) ?Match {
                 if (mask[mask_index] != 0) {
                     var match_opt = check_potential_match(window, search_buff, index, mask_index, target_len);
                     if (match_opt) |match| {
+                        print("\nMATCH: <<<<<<<<<<<<<<<<<\n{c}\n{c}\n{}\n\n", .{first_block, last_block, match});
                         if (match.len == search_buff.len) {
                             return match;
-                        } else if (best_match_opt) |best_match| {
-                            if (match.len > best_match.len) {
-                                best_match_opt = match;
-                            }
-                        } else {
-                            best_match_opt = match;
                         }
+                        if (best_match_opt == null or best_match_opt.?.len < match.len) {
+                            best_match_opt = match;
+                            target_len = best_match_opt.?.len + 1;
+                            continue :outer;
+                        }
+                    } else {
+                        print("\n{c}\n{c}\n\n", .{first_block, last_block});
                     }
                 }
                 if (mask_index > 0) {
@@ -158,6 +175,13 @@ test "find best match at beginning" {
 }
 
 pub fn main() !void {
-    var best_match = find_best_match(@embedFile("bible.txt"), "1989");
-    print("{}", .{best_match});
+    const bible = @embedFile("bible.txt");
+
+    const stdin = std.io.getStdIn().reader();
+    var buf: [100]u8 = undefined;
+    if (try stdin.readUntilDelimiterOrEof(buf[0..], '\n')) |user_input| {
+        const best_match = find_best_match(bible, user_input);
+        print("\nBEST: {}", .{best_match});
+        _ = best_match;
+    }
 }
